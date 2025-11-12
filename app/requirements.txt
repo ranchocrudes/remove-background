@@ -1,0 +1,14 @@
+rembg
+onnxruntime
+pillow
+numpy
+transformers
+huggingface-hub
+scikit-image
+torch
+torchvision
+torchaudio
+segment-anything
+opencv-python
+google-genai
+python-dotenv

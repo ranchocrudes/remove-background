@@ -1,0 +1,9 @@
+timestamp,model,image_name,elapsed_time_sec,alpha_accurate
+2025-11-11T21:41:34.073156,rembg,/app/images/gato-n-sei.png,9.3805,0.5017
+2025-11-11T21:41:35.991302,sam_predict,/app/images/gato-n-sei.png,0.3785,0.6283
+2025-11-11T21:41:41.870771,sam_mask_quality,/app/images/gato-n-sei.png,4.655,0.0293
+2025-11-11T21:41:53.989621,nano_banana,/app/images/gato-n-sei.png,12.0857,0.6877
+2025-11-12T16:10:42.838494,rembg,/app/images/gato-n-sei.png,16.4291,0.5017
+2025-11-12T16:10:44.519687,sam_predict,/app/images/gato-n-sei.png,0.4244,0.6283
+2025-11-12T16:10:50.078463,sam_mask_quality,/app/images/gato-n-sei.png,4.5139,0.0293
+2025-11-12T16:11:05.737547,nano_banana,/app/images/gato-n-sei.png,15.6285,0.3756

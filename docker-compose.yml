@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  background-lab:
+    build: ./app
+    container_name: background-lab
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./data:/data
+      - ./app/images:/app/images
+      - ./output:/app/output
+      - ./app/models/sam_vit_b_01ec64.pth:/sam_vit_b_01ec64.pth
+      - ./app/results:/app/results
+
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

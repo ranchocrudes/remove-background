@@ -1,0 +1,5 @@
+timestamp,model,image_name,elapsed_time_sec,alpha_accurate
+2025-11-11T03:13:13.743776,rembg,/app/images/gato-n-sei.png,8.8013,0.5017
+2025-11-11T03:13:16.120527,sam_predict,/app/images/gato-n-sei.png,0.6028,0.6283
+2025-11-11T03:13:22.184592,sam_mask_quality,/app/images/gato-n-sei.png,4.7917,0.0293
+2025-11-11T03:13:34.374716,nano_banana,/app/images/gato-n-sei.png,12.1519,0.9151
