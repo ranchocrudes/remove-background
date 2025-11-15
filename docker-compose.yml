@@ -2,8 +2,9 @@ version: "3.9"
 
 services:
   background-lab:
+    image: remove-background
+    container_name: remove-background
     build: ./app
-    container_name: background-lab
 
     env_file:
       - .env
@@ -11,6 +12,7 @@ services:
     volumes:
       - ./data:/data
       - ./app/images:/app/images
+      - ./app/images_alpha:/app/images_alpha
       - ./output:/app/output
       - ./app/models/sam_vit_b_01ec64.pth:/sam_vit_b_01ec64.pth
       - ./app/results:/app/results

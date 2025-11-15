@@ -1,4 +1,3 @@
-import io
 import csv
 
 from pathlib import Path

@@ -1,27 +1,23 @@
 import numpy as np
 import cv2
 
-from pathlib import Path
 from PIL import Image
 
 def convert_transparent_png_to_bw_mask(input_path: str, output_path: str):
     try:
-        img_pil = Image.open(input_path)
+        img = Image.open(input_path).convert("RGBA")
+        alpha = np.array(img)[:, :, 3]  # canal alpha
 
-        img_pil = img_pil.convert("RGBA")
+        mask = (alpha > 1).astype(np.uint8) * 255  # binariza corretamente
 
-        alpha_channel = img_pil.getchannel('A')
+        mask_img = Image.fromarray(mask, mode="L")
+        mask_img.save(output_path)
 
-        threshold = 1
-        mask_bw = alpha_channel.point(lambda p: 255 if p > threshold else 0)
-
-        mask_bw = mask_bw.convert('L')
-
-        mask_bw.save(output_path)
         print(f"Mask saved successfully: {output_path}")
 
     except Exception as e:
         print(f"Error to convert {input_path}: {e}")
+
 
 def calculate_iou(mask_prediction: np.ndarray, mask_true: np.ndarray) -> float:
     mask_prediction = mask_prediction.astype(bool)

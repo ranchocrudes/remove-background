@@ -1,76 +1,102 @@
-import argparse
-import mimetypes
-import os
 import time
 from datetime import datetime
-from PIL import Image
 from google import genai
 from google.genai import types
-from rembg import remove as rembg_remove
+from PIL import Image
+from io import BytesIO
 from pathlib import Path
+import mimetypes
+import numpy as np
+import os
+from PIL import Image
+from dotenv import load_dotenv
 
 from helpers.report import save_metrics_csv
-from helpers.metric import convert_transparent_png_to_bw_mask, metric
+from helpers.metric import  metric
 
 MODEL_NAME = "gemini-2.5-flash-image-preview"
 
-def edit_image(
-        image_name: str,
-        image_alpha_path: str,
-        prompt: str,
-):
+def convert_gemini_png_to_bw_mask(input_path: str, output_path: str):
+    try:
+        img = Image.open(input_path).convert("RGB")
+        arr = np.array(img)
+
+        black_mask = np.all(arr < 30, axis=-1) 
+
+        mask = np.where(black_mask, 0, 255).astype(np.uint8)
+
+        mask_img = Image.fromarray(mask, mode="L")
+        mask_img.save(output_path)
+
+        print(f"Mask saved successfully: {output_path}")
+
+    except Exception as e:
+        print(f"Error converting {input_path}: {e}")
+
+
+def process_image_gemini(image_name: str, image_alpha_path: str, prompt: str = None):
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+    if prompt is None:
+        prompt = (
+            "Remove the background from the image. "
+            "Keep the main object visible and isolated. "
+            "Make the background fully black."
+        )
+
     INPUT_IMAGE_PATH = PROJECT_ROOT / "images" / image_name
-    OUTPUT_IMAGE_PATH = PROJECT_ROOT / "results" / "nano_banana" / "colored"
+    OUTPUT_IMAGE_PATH = PROJECT_ROOT / "results" / "nano_banana" / "colored" / f"nano_banana_result_{image_name}"
     OUTPUT_IMAGE_ALPHA_PATH = PROJECT_ROOT / "results" / "nano_banana" / "alpha" / f"nano_banana_result_alpha_{image_name}.png"
 
-    api_key = "AIzaSyCN9IX-Y7NFasqki9We5YdcPMaC50tTH1Y"
+    OUTPUT_IMAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT_IMAGE_ALPHA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    load_dotenv() 
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable not set.")
 
     start_time = time.time()
-
     client = genai.Client(api_key=api_key)
 
     contents = _load_image_parts([INPUT_IMAGE_PATH])
-    contents.append(genai.types.Part.from_text(text=prompt))
+    contents.append(types.Part(text="task: image_editing"))
+    contents.append(types.Part(text=prompt))
+
 
     generate_content_config = types.GenerateContentConfig(
         response_modalities=["IMAGE", "TEXT"],
     )
 
-    print(f"Editing image: {INPUT_IMAGE_PATH} with prompt: {prompt}")
-
+    print(f"--- Starting Gemini Process ---\nEditing image: {INPUT_IMAGE_PATH} with prompt: {prompt}")
     stream = client.models.generate_content_stream(
         model=MODEL_NAME,
         contents=contents,
         config=generate_content_config,
     )
 
-    _process_api_stream_response(stream, OUTPUT_IMAGE_PATH, image_name)
+    output_image_pil = _process_api_stream_response(stream, OUTPUT_IMAGE_PATH, OUTPUT_IMAGE_ALPHA_PATH)
 
-    end_time = time.time()
+    elapsed_time_sec = time.time() - start_time
+    print(f"Gemini process finished in {elapsed_time_sec:.4f} seconds.")
 
-    elapsed_time_sec = end_time - start_time
-
-    print(f"Image embedding set in {elapsed_time_sec:.4f} seconds.")
-
-    FINAL_OUTPUT_IMAGE_PATH = OUTPUT_IMAGE_PATH / f"nano_banana_result_after_{image_name}.png"
-
-    convert_transparent_png_to_bw_mask(FINAL_OUTPUT_IMAGE_PATH, OUTPUT_IMAGE_ALPHA_PATH)
-
-    iou_score = metric(image_alpha_path, OUTPUT_IMAGE_ALPHA_PATH)
+    if Path(OUTPUT_IMAGE_ALPHA_PATH).exists():
+        iou_score = metric(image_alpha_path, OUTPUT_IMAGE_ALPHA_PATH)
+    else:
+        print(f"Alpha file not found: {OUTPUT_IMAGE_ALPHA_PATH}")
+        iou_score = 0
 
     metrics_data = {
         "timestamp": datetime.now().isoformat(),
         "model": "nano_banana",
-        "image_name": INPUT_IMAGE_PATH,
+        "image_name": image_name,
         "elapsed_time_sec": round(elapsed_time_sec, 4),
         "alpha_accurate": round(iou_score, 4)
     }
-
     save_metrics_csv(metrics_data)
+
+    return output_image_pil
 
 
 def _load_image_parts(image_paths: list[str]) -> list[types.Part]:
@@ -85,52 +111,37 @@ def _load_image_parts(image_paths: list[str]) -> list[types.Part]:
     return parts
 
 
-def _process_api_stream_response(stream, output_dir: str, image_name: str):
-    file_index = 0
-    file_extension = ".png"
+def _process_api_stream_response(stream, output_image_path: Path, output_image_alpha_path: Path) -> Image.Image:
+    """
+    Salva a imagem recebida da API e gera o alpha mask.
+    """
     for chunk in stream:
-        if (
-            chunk.candidates is None
-            or chunk.candidates[0].content is None
-            or chunk.candidates[0].content.parts is None
-        ):
+        if not chunk.candidates or not chunk.candidates[0].content or not chunk.candidates[0].content.parts:
             continue
 
         for part in chunk.candidates[0].content.parts:
+
             if part.inline_data and part.inline_data.data:
                 api_image_bytes = part.inline_data.data
 
-                file_name = os.path.join(
-                    output_dir,
-                    f"nano_banana_result_before_{image_name}{file_extension}",
+                colored_png_path = output_image_path.with_suffix(".png")
+                _save_binary_file(colored_png_path, api_image_bytes)
+
+                convert_gemini_png_to_bw_mask(
+                    colored_png_path,
+                    output_image_alpha_path
                 )
 
-                _save_binary_file(file_name, api_image_bytes)
+                return Image.open(BytesIO(api_image_bytes)).convert("RGBA")
 
-                print("Image received from API. Applying rembg...")
-
-                try:
-                    transparent_bytes = rembg_remove(api_image_bytes)
-                except Exception as e:
-                    print(f"Error during rembg processing: {e}")
-                    print("Saving the original image from API instead.")
-                    transparent_bytes = api_image_bytes
-
-                file_name = os.path.join(
-                    output_dir,
-                    f"nano_banana_result_after_{image_name}{file_extension}",
-                )
-
-                _save_binary_file(file_name, transparent_bytes)
-                file_index += 1
             elif part.text:
                 print(f"[API Text Response]: {part.text}")
 
 
-def _save_binary_file(file_name: str, data: bytes):
-    with open(file_name, "wb") as f:
+def _save_binary_file(file_path: Path, data: bytes):
+    with open(file_path, "wb") as f:
         f.write(data)
-    print(f"File saved to: {file_name}")
+    print(f"File saved to: {file_path}")
 
 
 def _get_mime_type(file_path: str) -> str:
@@ -140,40 +151,14 @@ def _get_mime_type(file_path: str) -> str:
     return mime_type
 
 
-def generate_image():
-    parser = argparse.ArgumentParser(
-        description="Edit an image using Google Generative AI."
-    )
-
-    parser.add_argument(
-        "-i",
-        "--image",
-        type=str,
-        required=True,
-        help="Path to the input image to edit.",
-    )
-
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        required=True,
-        help="The editing instruction (e.g., 'remove the background').",
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="output",
-        help="Directory to save the edited images.",
-    )
-
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Edit an image using Gemini Generative AI.")
+    parser.add_argument("-i", "--image", type=str, required=True, help="Path to the input image.")
+    parser.add_argument("--prompt", type=str, help="Prompt for the Gemini model.")
     args = parser.parse_args()
 
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    alpha_path = PROJECT_ROOT / "results" / "nano_banana" / "alpha" / f"nano_banana_result_alpha_{args.image}.png"
 
-    edit_image(
-        image_path=args.image,
-        prompt=args.prompt,
-        output_dir=output_dir,
-    )
+    process_image_gemini(args.image, alpha_path)
